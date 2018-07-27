@@ -1,0 +1,132 @@
+package boot
+
+import (
+	"encoding/json"
+	log "github.com/sirupsen/logrus"
+	"github.com/tidwall/gjson"
+	"sort"
+)
+
+var (
+	OrderBook map[string][]Order
+)
+
+type (
+	OrderBookL2 struct {
+		Table  string `json:"table"`
+		Action string `json:"action"`
+		Data   []Order
+	}
+
+	Order struct {
+		Symbol string  `json:"symbol"`
+		ID     int64   `json:"id"`
+		Side   string  `json:"side"`
+		Price  float64 `json:"price"`
+		Size   int64   `json:"size"`
+	}
+
+	ByID []Order
+)
+
+// sort
+func (a ByID) Len() int           { return len(a) }
+func (a ByID) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByID) Less(i, j int) bool { return a[i].ID > a[j].ID }
+
+func dispatch(msg []byte) (err error) {
+	message := string(msg)
+
+	if message == "pong" {
+		return handlePing(message)
+	}
+
+	topic := gjson.GetBytes(msg, "table")
+
+	switch topic.String() {
+	case "orderBookL2":
+		//return handleOrderBookL2(msg)
+		handleOrderBookL2(msg)
+		for k, v := range OrderBook {
+			log.Info(k)
+			if len(v) > 10 {
+				log.Info(v[:10])
+			}
+			break
+		}
+
+	default:
+		return
+	}
+
+	//log.Debug(msg)
+	return
+}
+
+func handlePing(msg string) (err error) {
+	log.Debug(msg)
+	return
+}
+
+func handleOrderBookL2(msg []byte) (err error) {
+	ob := &OrderBookL2{}
+	if err = json.Unmarshal(msg, ob); err != nil {
+		return
+	}
+
+	log.Info(ob)
+
+	if ob.Action == "partial" {
+		log.Debug("partial")
+		OrderBook = make(map[string][]Order)
+		for _, order := range ob.Data {
+			OrderBook[order.Symbol] = append(OrderBook[order.Symbol], order)
+		}
+		for _, v := range OrderBook {
+			sort.Sort(ByID(v))
+		}
+		return
+	}
+
+	if ob.Action == "insert" {
+		log.Debug("insert")
+		for _, order := range ob.Data {
+			for _, v := range OrderBook[order.Symbol] {
+				if v.ID == order.ID {
+					OrderBook[order.Symbol] = append(OrderBook[order.Symbol], order)
+				}
+			}
+		}
+		for _, v := range OrderBook {
+			sort.Sort(ByID(v))
+		}
+		return
+	}
+
+	if ob.Action == "update" {
+		log.Debug("update")
+		log.Debug(string(msg))
+		for _, order := range ob.Data {
+			for k, v := range OrderBook[order.Symbol] {
+				if v.ID == order.ID {
+					OrderBook[order.Symbol][k].Size = order.Size
+				}
+			}
+		}
+		return
+	}
+
+	if ob.Action == "delete" {
+		log.Debug("delete")
+		for _, order := range ob.Data {
+			for k, v := range OrderBook[order.Symbol] {
+				if v.ID == order.ID {
+					OrderBook[order.Symbol] = append(OrderBook[order.Symbol][:k], OrderBook[order.Symbol][k+1:]...)
+				}
+			}
+		}
+		return
+	}
+
+	return
+}
