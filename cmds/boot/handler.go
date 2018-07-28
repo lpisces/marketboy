@@ -5,7 +5,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 	"gopkg.in/resty.v1"
-	//"sort"
 )
 
 var (
@@ -45,7 +44,6 @@ func dispatch(msg []byte) (err error) {
 		return
 	}
 
-	//log.Debug(msg)
 	return
 }
 
@@ -65,12 +63,34 @@ func handleOrderBook10(msg []byte) (err error) {
 		for _, order := range ob.Data {
 			orderBook[order.Symbol] = order
 		}
-		log.Debug("---")
-		log.Debug(orderBook["XBTUSD"].Asks)
-		log.Debug(orderBook["XBTUSD"].Bids)
-		log.Debug("---")
 		return
 	}
+	return
+}
+
+func createOrder(symbol, side string, qty float64, price float64) (err error) {
+	// endpoint
+	path := "/order"
+	endpoint := fmt.Sprintf("%s://%s%s%s", Conf.RestConfig.Scheme, Conf.RestConfig.Host, Conf.RestConfig.Prefix, path)
+
+	// params
+	params := make(map[string]interface{})
+	params["symbol"] = symbol
+	params["side"] = side
+	params["orderQty"] = qty
+	params["price"] = price
+
+	// verb
+	verb := "POST"
+
+	// sign
+	expires := time.Now().Unix() + 5
+	sign := getSign(Conf.AuthConfig.Secret, verb, Conf.RestConfig.Prefix+path, expires, string(mustMarshal(params)))
+
+	// header
+	header := make(map[string]string)
+	header["API-expires"] = time.Now().Unix() + 5
+	header["API-key"] = Conf.AuthConfig.Key
 
 	return
 }

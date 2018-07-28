@@ -21,7 +21,7 @@ type CMD struct {
 	Args    []interface{} `json:"args"`
 }
 
-func initEnv(c *cli.Context) error {
+func Run(c *cli.Context) (err error) {
 	if err := Conf.Load(c); err != nil {
 		return err
 	}
@@ -29,13 +29,6 @@ func initEnv(c *cli.Context) error {
 	log.SetLevel(log.InfoLevel)
 	if Conf.Debug {
 		log.SetLevel(log.DebugLevel)
-	}
-	return nil
-}
-
-func Run(c *cli.Context) (err error) {
-	if err := initEnv(c); err != nil {
-		return err
 	}
 
 	interrupt := make(chan os.Signal, 1)
@@ -62,7 +55,6 @@ func Run(c *cli.Context) (err error) {
 				log.Error("read:", err)
 				return
 			}
-			//log.Infof("recv: %s", message)
 			if err := dispatch(message); err != nil {
 				log.Error(err)
 			}
