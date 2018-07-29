@@ -89,8 +89,15 @@ func createOrder(symbol, side string, qty float64, price float64) (err error) {
 
 	// header
 	header := make(map[string]string)
-	header["API-expires"] = time.Now().Unix() + 5
-	header["API-key"] = Conf.AuthConfig.Key
+	header["api-expires"] = time.Now().Unix() + 5
+	header["api-key"] = Conf.AuthConfig.Key
+	header["api-signature"] = sign
+
+	// request
+	request := resty.R()
+	for k, v := range header {
+		request.SetHeader(k, v)
+	}
 
 	return
 }
