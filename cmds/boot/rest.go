@@ -1,5 +1,12 @@
 package boot
 
+import (
+	"fmt"
+	"gopkg.in/resty.v1"
+	"net/http"
+	"time"
+)
+
 type (
 	Endpoint struct {
 		Verb string
@@ -50,21 +57,17 @@ type (
 
 func (ep *Endpoint) Do() (err error) {
 	// endpoint
-	path := ep.Path
 	endpoint := fmt.Sprintf("%s://%s%s%s", ep.Scheme, ep.Host, ep.Prefix, ep.Path)
 	if ep.Port != "" {
-		endpoint := fmt.Sprintf("%s://%s%s%s%s", ep.Scheme, ep.Host, ":"+ep.Port, ep.Prefix, ep.Path)
+		endpoint = fmt.Sprintf("%s://%s%s%s%s", ep.Scheme, ep.Host, ":"+ep.Port, ep.Prefix, ep.Path)
 	}
-
-	// verb
-	verb := ep.Verb
 
 	// sign
 	expires := time.Now().Unix() + 5
 	sign := getSign(ep.Secret, ep.Verb, ep.Prefix+ep.Path, expires, string(mustMarshal(ep.Params)))
 
 	// header
-	header := make(map[string]string)
+	header := make(map[string]interface{})
 	header["api-expires"] = expires
 	header["api-key"] = ep.Key
 	header["api-signature"] = sign
@@ -78,24 +81,35 @@ func (ep *Endpoint) Do() (err error) {
 	// header
 	request.SetHeader("Accept", "application/json")
 	for k, v := range header {
-		request.SetHeader(k, v)
+		request.SetHeader(k, fmt.Sprintf("%v", v))
 	}
 
 	// response
 	request.SetResult(ep.Result)
 
 	// do request
-	resp, err := request.Post(endpoint)
+	switch ep.Verb {
+	case "POST":
+		ep.Response, err = request.Post(endpoint)
+	case "GET":
+		ep.Response, err = request.Get(endpoint)
+	case "DELETE":
+		ep.Response, err = request.Delete(endpoint)
+	case "PUT":
+		ep.Response, err = request.Put(endpoint)
+	default:
+		err = fmt.Errorf("verb not supported: %s", ep.Verb)
+		return
+	}
 	if err != nil {
 		return
 	}
 
 	// check status code
-	if resp.StatusCode != http.StatusOK {
-		err = fmt.Errorf("status code: %v, msg: %s", resp.StatusCode, string(resp.Body))
+	if ep.Response.StatusCode() != http.StatusOK {
+		err = fmt.Errorf("status code: %v, msg: %s", ep.Response.StatusCode, string(ep.Response.Body()))
 		return
 	}
 
-	ep.Response = resp
 	return
 }

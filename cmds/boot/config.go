@@ -61,6 +61,7 @@ func Default() *Config {
 			"https",
 			"localhost",
 			"/",
+			"",
 		},
 		&AuthConfig{
 			"",
