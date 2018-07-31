@@ -29,6 +29,7 @@ type (
 		Scheme string
 		Host   string
 		Prefix string
+		Port   string
 	}
 
 	AuthConfig struct {
