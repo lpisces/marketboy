@@ -11,6 +11,7 @@ import (
 var (
 	orderBook10 map[string]OrderBook10
 	position    map[string]Position
+	order       []Order
 )
 
 type (
@@ -56,6 +57,45 @@ type (
 		CurrentQty           float64 `json:"currentQty"`           // 持仓量 <0 (做空) >0(做多)
 		Timestamp            string  `json:"timestamp"`            // 时间
 		LastPrice            float64 `json:"lastPrice"`            // 最新价格
+	}
+
+	OrderMsg struct {
+		Table  string  `json:"table"`
+		Action string  `json:"Action"`
+		Data   []Order `json:"data"`
+	}
+	Order struct {
+		Account               float64 `json:"account"`
+		OrderID               string  `json:"orderID"`
+		Symbol                string  `json:"symbol"`
+		Side                  string  `json:"side"`
+		SimpleOrderQty        float64 `json:"simpleOrderQty"`
+		OrderQty              float64 `json:"orderQty"`
+		Price                 float64 `json:"price"`
+		DisplayQty            float64 `json:"displayQty"`
+		StopPx                float64 `json:"stopPx"`
+		PegOffsetValue        float64 `json:"pegOffsetValue"`
+		PegPriceType          string  `json:"pegPriceType"`
+		Currency              string  `json:"currency"`
+		SettlCurrency         string  `json:"settlCurrency"`
+		OrdType               string  `json:"ordType"`
+		TimeInForce           string  `json:"timeInForce"`
+		ExecInst              string  `json:"execInst"`
+		ContingencyType       string  `json:"contingencyType"`
+		ExDestination         string  `json:"exDestination"`
+		OrdStatus             string  `json:"ordStatus"`
+		Triggered             string  `json:"triggered"`
+		WorkingIndicator      bool    `json:"workingIndicator"`
+		OrdRejReason          string  `json:"ordRejReason"`
+		SimpleLeavesQty       float64 `json:"simpleLeavesQty"`
+		LeavesQty             float64 `json:"leavesQty"`
+		SimpleCumQty          float64 `json:"simpleCumQty"`
+		CumQty                float64 `json:"cumQty"`
+		AvgPx                 float64 `json:"avgPx"`
+		MultiLegReportingType string  `json:"multiLegReportingType"`
+		Text                  string  `json:"text"`
+		TransactTime          string  `json:"transactTime"`
+		Timestamp             string  `json:"timestamp"`
 	}
 )
 
@@ -107,7 +147,7 @@ func handleOrderBook10(msg []byte) (err error) {
 }
 
 func handleExecution(msg []byte) (err error) {
-	//log.Debug(string(msg))
+	log.Debug(string(msg))
 	return
 }
 
@@ -122,29 +162,50 @@ func handlePosition(msg []byte) (err error) {
 		for _, p := range pm.Data {
 			position[p.Symbol] = p
 		}
-		log.Debug("partial", position["XBTUSD"])
+		log.Debug("partial position", position["XBTUSD"])
 		return
+	}
+
+	update := func(source, patch Position) Position {
+		s := source
+		v := reflect.ValueOf(s)
+		vv := reflect.ValueOf(patch)
+		v_elem := reflect.ValueOf(&s).Elem()
+
+		for i := 0; i < v.NumField(); i++ {
+			//f := v.Field(i)
+			ff := vv.Field(i)
+			if reflect.DeepEqual(ff.Interface(), reflect.Zero(ff.Type()).Interface()) {
+				continue
+			}
+			v_elem.Field(i).Set(ff)
+		}
+		return s
 	}
 
 	if pm.Action == "update" {
 		for _, p := range pm.Data {
-			log.Debug(p)
-			pp := position[p.Symbol]
-			v := reflect.ValueOf(pp)
-			vv := reflect.ValueOf(p)
-			v_elem := reflect.ValueOf(&pp).Elem()
+			//log.Debug(p)
+			/*
+				pp := position[p.Symbol]
+				v := reflect.ValueOf(pp)
+				vv := reflect.ValueOf(p)
+				v_elem := reflect.ValueOf(&pp).Elem()
 
-			for i := 0; i < v.NumField(); i++ {
-				//f := v.Field(i)
-				ff := vv.Field(i)
-				if reflect.DeepEqual(ff.Interface(), reflect.Zero(ff.Type()).Interface()) {
-					continue
+				for i := 0; i < v.NumField(); i++ {
+					//f := v.Field(i)
+					ff := vv.Field(i)
+					if reflect.DeepEqual(ff.Interface(), reflect.Zero(ff.Type()).Interface()) {
+						continue
+					}
+					v_elem.Field(i).Set(ff)
 				}
-				v_elem.Field(i).Set(ff)
-			}
-			position[p.Symbol] = pp
+				position[p.Symbol] = pp
+			*/
+			position[p.Symbol] = update(position[p.Symbol], p)
+
 		}
-		log.Debug("update", position["XBTUSD"])
+		log.Debug("update position", position["XBTUSD"])
 		return
 	}
 
@@ -152,6 +213,60 @@ func handlePosition(msg []byte) (err error) {
 }
 
 func handleOrder(msg []byte) (err error) {
-	//log.Debug(string(msg))
+	log.Debug(string(msg))
+	om := &OrderMsg{}
+	if err = json.Unmarshal(msg, om); err != nil {
+		return
+	}
+
+	if om.Action == "partial" {
+		order = om.Data
+		log.Debug(order)
+		log.Debug(len(order))
+		return
+	}
+
+	if om.Action == "insert" {
+		order = append(order, om.Data...)
+		log.Debug(order)
+		log.Debug(len(order))
+		return
+	}
+
+	update := func(source, patch Order) Order {
+		s := source
+		v := reflect.ValueOf(s)
+		vv := reflect.ValueOf(patch)
+		v_elem := reflect.ValueOf(&s).Elem()
+
+		for i := 0; i < v.NumField(); i++ {
+			//f := v.Field(i)
+			ff := vv.Field(i)
+			if reflect.DeepEqual(ff.Interface(), reflect.Zero(ff.Type()).Interface()) {
+				continue
+			}
+			v_elem.Field(i).Set(ff)
+		}
+		return s
+	}
+
+	if om.Action == "update" {
+		for _, v := range om.Data {
+			for kk, vv := range order {
+				if v.OrderID == vv.OrderID {
+					order[kk] = update(vv, v)
+				}
+			}
+		}
+		for k, v := range order {
+			if v.OrdStatus == "Canceled" {
+				order = append(order[:k], order[k+1:]...)
+			}
+		}
+		log.Debug(order)
+		log.Debug(len(order))
+		return
+	}
+
 	return
 }
