@@ -97,6 +97,62 @@ type (
 		TransactTime          string  `json:"transactTime"`
 		Timestamp             string  `json:"timestamp"`
 	}
+
+	ExecutionMsg struct {
+		Table  string      `json:"table"`
+		Action string      `json:"Action"`
+		Data   []Execution `json:"data"`
+	}
+
+	Execution struct {
+		ExecID                string  `json:"execID"`
+		OrderID               string  `json:"orderID"`
+		ClOrdID               string  `json:"clOrdID"`
+		ClOrdLinkID           string  `json:"clOrdLinkID"`
+		Account               float64 `json:"account"`
+		Symbol                string  `json:"symbol"`
+		Side                  string  `json:"side"`
+		LastQty               float64 `json:"lastQty"`
+		LastPx                float64 `json:"lastPx"`
+		UnderlyingLastPx      float64 `json:"underlyingLastPx"`
+		LastMkt               float64 `json:"lastMkt"`
+		LastLiquidityInd      string  `json:"lastLiquidityInd"`
+		SimpleOrderQty        float64 `json:"simpleOrderQty"`
+		OrderQty              float64 `json:"orderQty"`
+		Price                 float64 `json:"price"`
+		DisplayQty            float64 `json:"displayQty"`
+		StopPx                float64 `json:"stopPx"`
+		PegOffsetValue        float64 `json:"pegOffsetValue"`
+		PegPriceType          string  `json:"pegPriceType"`
+		Currency              string  `json:"currency"`
+		SettlCurrency         string  `json:"settlCurrency"`
+		ExecType              string  `json:"execType"`
+		OrdType               string  `json:"ordType"`
+		TimeInForce           string  `json:"timeInForce"`
+		ExecInst              string  `json:"execInst"`
+		ContingencyType       string  `json:"contingencyType"`
+		ExDestination         string  `json:"exDestination"`
+		OrdStatus             string  `json:"ordStatus"`
+		Triggered             string  `json:"triggered"`
+		WorkingIndicator      string  `json:"workingIndicator"`
+		OrdRejReason          string  `json:"ordRejReason"`
+		SimpleLeavesQty       float64 `json:"simpleLeavesQty"`
+		LeavesQty             float64 `json:"leavesQty"`
+		SimpleCumQty          float64 `json:"simpleCumQty"`
+		CumQty                float64 `json:"cumQty"`
+		AvgPx                 float64 `json:"avgPx"`
+		Commission            float64 `json:"commission"`
+		TradePublishIndicator float64 `json:"tradePublishIndicator"`
+		MultiLegReportingType float64 `json:"multiLegReportingType"`
+		Text                  float64 `json:"text"`
+		TrdMatchID            float64 `json:"trdMatchID"`
+		ExecCost              float64 `json:"execCost"`
+		ExecComm              float64 `json:"execComm"`
+		HomeNotional          float64 `json:"homeNotional"`
+		ForeignNotional       float64 `json:"foreignNotional"`
+		TransactTime          string  `json:"transactTime"`
+		Timestamp             string  `json:"timestamp"`
+	}
 )
 
 func dispatch(msg []byte) (err error) {
@@ -148,6 +204,22 @@ func handleOrderBook10(msg []byte) (err error) {
 
 func handleExecution(msg []byte) (err error) {
 	log.Debug(string(msg))
+	em := &ExecutionMsg{}
+	if err = json.Unmarshal(msg, em); err != nil {
+		return
+	}
+
+	if em.Action == "partial" {
+		for _, v := range em.Data {
+			log.Debug("partial execution", v)
+		}
+	}
+
+	if em.Action == "insert" {
+		for _, v := range em.Data {
+			log.Debug("insert execution", v)
+		}
+	}
 	return
 }
 
@@ -185,25 +257,7 @@ func handlePosition(msg []byte) (err error) {
 
 	if pm.Action == "update" {
 		for _, p := range pm.Data {
-			//log.Debug(p)
-			/*
-				pp := position[p.Symbol]
-				v := reflect.ValueOf(pp)
-				vv := reflect.ValueOf(p)
-				v_elem := reflect.ValueOf(&pp).Elem()
-
-				for i := 0; i < v.NumField(); i++ {
-					//f := v.Field(i)
-					ff := vv.Field(i)
-					if reflect.DeepEqual(ff.Interface(), reflect.Zero(ff.Type()).Interface()) {
-						continue
-					}
-					v_elem.Field(i).Set(ff)
-				}
-				position[p.Symbol] = pp
-			*/
 			position[p.Symbol] = update(position[p.Symbol], p)
-
 		}
 		log.Debug("update position", position["XBTUSD"])
 		return
