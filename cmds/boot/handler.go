@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
+	"math"
 	"reflect"
 	//"strings"
 )
@@ -12,9 +13,15 @@ var (
 	orderBook10 map[string]OrderBook10
 	position    map[string]Position
 	order       []Order
+	operate     chan Operate
 )
 
 type (
+	Operate struct {
+		Action string
+		Params map[string]interface{}
+	}
+
 	OrderBook10Msg struct {
 		Table  string
 		Action string
@@ -115,7 +122,7 @@ type (
 		LastQty               float64 `json:"lastQty"`
 		LastPx                float64 `json:"lastPx"`
 		UnderlyingLastPx      float64 `json:"underlyingLastPx"`
-		LastMkt               float64 `json:"lastMkt"`
+		LastMkt               string  `json:"lastMkt"`
 		LastLiquidityInd      string  `json:"lastLiquidityInd"`
 		SimpleOrderQty        float64 `json:"simpleOrderQty"`
 		OrderQty              float64 `json:"orderQty"`
@@ -134,7 +141,7 @@ type (
 		ExDestination         string  `json:"exDestination"`
 		OrdStatus             string  `json:"ordStatus"`
 		Triggered             string  `json:"triggered"`
-		WorkingIndicator      string  `json:"workingIndicator"`
+		WorkingIndicator      bool    `json:"workingIndicator"`
 		OrdRejReason          string  `json:"ordRejReason"`
 		SimpleLeavesQty       float64 `json:"simpleLeavesQty"`
 		LeavesQty             float64 `json:"leavesQty"`
@@ -142,10 +149,10 @@ type (
 		CumQty                float64 `json:"cumQty"`
 		AvgPx                 float64 `json:"avgPx"`
 		Commission            float64 `json:"commission"`
-		TradePublishIndicator float64 `json:"tradePublishIndicator"`
-		MultiLegReportingType float64 `json:"multiLegReportingType"`
-		Text                  float64 `json:"text"`
-		TrdMatchID            float64 `json:"trdMatchID"`
+		TradePublishIndicator string  `json:"tradePublishIndicator"`
+		MultiLegReportingType string  `json:"multiLegReportingType"`
+		Text                  string  `json:"text"`
+		TrdMatchID            string  `json:"trdMatchID"`
 		ExecCost              float64 `json:"execCost"`
 		ExecComm              float64 `json:"execComm"`
 		HomeNotional          float64 `json:"homeNotional"`
@@ -154,6 +161,27 @@ type (
 		Timestamp             string  `json:"timestamp"`
 	}
 )
+
+func init() {
+	operate = make(chan Operate, 1)
+	go func() {
+		for {
+			op := <-operate
+			switch op.Action {
+			case "create":
+				if err := createOrder(op.Params); err != nil {
+					log.Info(err)
+				}
+			case "amend":
+				if err := amendOrder(op.Params); err != nil {
+					log.Info(err)
+				}
+			default:
+				log.Info("not supported action")
+			}
+		}
+	}()
+}
 
 func dispatch(msg []byte) (err error) {
 	//log.Debug(string(msg))
@@ -181,11 +209,108 @@ func dispatch(msg []byte) (err error) {
 	return
 }
 
+// ping
 func handlePing(msg string) (err error) {
 	log.Debug(msg)
+	// 移仓
+	for _, v := range order {
+		go func() {
+			action := "amend"
+			params := make(map[string]interface{})
+			pRange := Conf.Trading.Range
+			if pRange-1 < 0 {
+				pRange = 1
+			}
+			params["orderID"] = v.OrderID
+			if v.Side == "Sell" && v.Price > orderBook10[v.Symbol].Bids[pRange-1][0] {
+				params["price"] = orderBook10[v.Symbol].Bids[pRange-1][0]
+			}
+
+			if v.Side == "Buy" && v.Price < orderBook10[v.Symbol].Asks[pRange-1][0] {
+				params["price"] = orderBook10[v.Symbol].Asks[pRange-1][0]
+			}
+			operate <- Operate{
+				action,
+				params,
+			}
+			log.Infof("%s order %s to be moved to %v, qty is %v", v.Side, params["orderID"], params["price"], v.OrderQty)
+		}()
+	}
+
+	// 超出最大持仓量
+	for k, v := range position {
+		if math.Abs(v.CurrentQty) > Conf.Trading.MaxHoldQty {
+			go func() {
+				action := "create"
+				params := make(map[string]interface{})
+				params["symbol"] = k
+				params["orderQty"] = Conf.Trading.UnitQty * 2
+				params["side"] = "Buy"
+				params["price"] = orderBook10[k].Asks[0][0]
+				if v.CurrentQty > 0 {
+					params["side"] = "Sell"
+					params["price"] = orderBook10[k].Bids[0][0]
+				}
+				operate <- Operate{
+					action,
+					params,
+				}
+				log.Infof("%s order %s to be moved to %v, qty is %v", k, params["orderID"], params["price"], params["orderQty"])
+			}()
+		}
+	}
+
+	// 填价
+	for _, s := range Conf.Trading.Symbol {
+		toBuy := true
+		toSell := true
+		for _, v := range order {
+			if s != v.Symbol {
+				continue
+			}
+			if v.Side == "Buy" && v.Price == orderBook10[v.Symbol].Asks[0][0] {
+				toBuy = false
+				break
+			}
+			if v.Side == "Sell" && v.Price == orderBook10[v.Symbol].Bids[0][0] {
+				toSell = false
+				break
+			}
+		}
+
+		go func() {
+			action := "create"
+			if toBuy {
+				params := make(map[string]interface{})
+				params["symbol"] = s
+				params["orderQty"] = Conf.Trading.UnitQty
+				params["side"] = "Buy"
+				params["price"] = orderBook10[s].Asks[0][0]
+				operate <- Operate{
+					action,
+					params,
+				}
+				log.Infof("%s order to be create at %v, qty is %v", params["side"], params["price"], params["orderQty"])
+			}
+			if toSell {
+				params2 := make(map[string]interface{})
+				params2["symbol"] = s
+				params2["orderQty"] = Conf.Trading.UnitQty
+				params2["side"] = "Sell"
+				params2["price"] = orderBook10[s].Bids[0][0]
+				operate <- Operate{
+					action,
+					params2,
+				}
+				log.Infof("%s order to be create at %v, qty is %v", params2["side"], params2["price"], params2["orderQty"])
+			}
+		}()
+	}
+
 	return
 }
 
+// 10档报价
 func handleOrderBook10(msg []byte) (err error) {
 	obm := &OrderBook10Msg{}
 	if err = json.Unmarshal(msg, obm); err != nil {
@@ -196,36 +321,68 @@ func handleOrderBook10(msg []byte) (err error) {
 		orderBook10 = make(map[string]OrderBook10)
 		for _, order := range obm.Data {
 			orderBook10[order.Symbol] = order
+			log.Info("---")
+			log.Infof("Asks: %v\t%v\t%v\t%v\t%v", order.Asks[0], order.Asks[1], order.Asks[2], order.Asks[3], order.Asks[4])
+			log.Infof("Bids: %v\t%v\t%v\t%v\t%v", order.Bids[0], order.Bids[1], order.Bids[2], order.Bids[3], order.Bids[4])
+			log.Info("---")
 		}
 		return
 	}
 	return
 }
 
+// 订单成交
 func handleExecution(msg []byte) (err error) {
-	log.Debug(string(msg))
 	em := &ExecutionMsg{}
 	if err = json.Unmarshal(msg, em); err != nil {
+		log.Info(err)
 		return
-	}
-
-	if em.Action == "partial" {
-		for _, v := range em.Data {
-			log.Debug("partial execution", v)
-		}
 	}
 
 	if em.Action == "insert" {
 		for _, v := range em.Data {
-			log.Debug("insert execution", v)
+			if v.OrdStatus == "Filled" {
+				log.Infof("%s order %s filled at %v, qty is %v", v.Side, v.OrderID, v.Price, v.CumQty)
+				params := make(map[string]interface{})
+				params["symbol"] = v.Symbol
+
+				params["side"] = "Buy"
+				if v.Side == "Buy" {
+					params["side"] = "Sell"
+				}
+
+				params["orderQty"] = v.CumQty
+
+				spread := Conf.Trading.Spread
+				if v.Side == "Sell" {
+					spread *= -1
+				}
+				params["price"] = v.Price + spread*Conf.Trading.PriceUint
+
+				if params["side"] == "Buy" && params["price"].(float64) > orderBook10[v.Symbol].Asks[0][0] {
+					params["price"] = orderBook10[v.Symbol].Asks[0][0]
+				}
+
+				if params["side"] == "Sell" && params["price"].(float64) < orderBook10[v.Symbol].Bids[0][0] {
+					params["price"] = orderBook10[v.Symbol].Bids[0][0]
+				}
+
+				operate <- Operate{
+					"create",
+					params,
+				}
+				log.Infof("%s order to be created at %v, qty is %v", params["side"], params["price"], params["orderQty"])
+			}
 		}
 	}
 	return
 }
 
+// 头寸
 func handlePosition(msg []byte) (err error) {
 	pm := &PositionMsg{}
 	if err = json.Unmarshal(msg, pm); err != nil {
+		log.Info(err)
 		return
 	}
 
@@ -266,6 +423,7 @@ func handlePosition(msg []byte) (err error) {
 	return
 }
 
+// 未成交订单
 func handleOrder(msg []byte) (err error) {
 	log.Debug(string(msg))
 	om := &OrderMsg{}
@@ -317,10 +475,38 @@ func handleOrder(msg []byte) (err error) {
 				order = append(order[:k], order[k+1:]...)
 			}
 		}
-		log.Debug(order)
-		log.Debug(len(order))
 		return
 	}
 
 	return
+}
+
+// 下单
+func createOrder(params map[string]interface{}) error {
+	or := OrderResponse{}
+	ep := Endpoint{
+		"POST",
+		"/order",
+		Conf.RestConfig,
+		Conf.AuthConfig,
+		params,
+		&or,
+		nil,
+	}
+	return ep.Do()
+}
+
+// 改单
+func amendOrder(params map[string]interface{}) error {
+	or := OrderResponse{}
+	ep := Endpoint{
+		"PUT",
+		"/order",
+		Conf.RestConfig,
+		Conf.AuthConfig,
+		params,
+		&or,
+		nil,
+	}
+	return ep.Do()
 }

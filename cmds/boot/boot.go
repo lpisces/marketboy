@@ -14,6 +14,7 @@ import (
 
 const (
 	AuthExpire = 7 * 24 * 60 * 60
+	Ping       = 3
 )
 
 type CMD struct {
@@ -62,7 +63,7 @@ func Run(c *cli.Context) (err error) {
 	}()
 
 	// ping
-	ticker := time.NewTicker(time.Second * 5)
+	ticker := time.NewTicker(time.Second * Ping)
 	defer ticker.Stop()
 
 	// Auth

@@ -1,0 +1,33 @@
+Debug = true
+
+[WSConfig]
+Scheme = wss
+Host = testnet.bitmex.com
+Path = /realtime
+
+[AuthConfig]
+Key = ZlmRtOB1BQpd435wXCMlRAM0
+Secret = eowLrCMUY6zmzjdI4WN5oj-mNys0vmqE295EZghOcdujaWAX
+
+[RestConfig]
+Scheme = https
+Host = testnet.bitmex.com
+Prefix = /api/v1
+Post = 
+
+[Subscribe] 
+Topic = connected, funding, instrument:XBTUSD, insurance, liquidation, orderBookL2:XBTUSD, orderBook10:XBTUSD, publicNotifications, quote, quoteBin1m, quoteBin5m, quoteBin1h, quoteBin1d, settlement, trade, tradeBin1m, tradeBin5m, tradeBin1h, tradeBin1d, execution, order, margin, position, transact, wallet
+
+[Trading]
+;最小交易单元
+UnitQty = 100
+;最大持仓
+MaxHoldQty = 1000
+Symbol = XBTUSD,
+;价差
+Spread = 2
+;价格单位
+PriceUint = 0.5
+;交易档范围
+Range = 5
+

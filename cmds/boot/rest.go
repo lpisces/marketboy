@@ -107,7 +107,7 @@ func (ep *Endpoint) Do() (err error) {
 
 	// check status code
 	if ep.Response.StatusCode() != http.StatusOK {
-		err = fmt.Errorf("status code: %v, msg: %s", ep.Response.StatusCode, string(ep.Response.Body()))
+		err = fmt.Errorf("status code: %v, msg: %s", ep.Response.StatusCode(), string(ep.Response.Body()))
 		return
 	}
 

@@ -17,6 +17,7 @@ type (
 		*RestConfig
 		*AuthConfig
 		*Subscribe
+		*Trading
 	}
 
 	WSConfig struct {
@@ -39,6 +40,15 @@ type (
 
 	Subscribe struct {
 		Topic []string
+	}
+
+	Trading struct {
+		UnitQty    float64
+		MaxHoldQty float64
+		Symbol     []string
+		Spread     float64
+		PriceUint  float64
+		Range      int64
 	}
 )
 
@@ -69,6 +79,14 @@ func Default() *Config {
 		},
 		&Subscribe{
 			[]string{},
+		},
+		&Trading{
+			100,
+			1000,
+			[]string{"XBTUSD"},
+			1,
+			0.5,
+			5,
 		},
 	}
 
