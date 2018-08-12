@@ -6,8 +6,10 @@ Host = testnet.bitmex.com
 Path = /realtime
 
 [AuthConfig]
-Key = ZlmRtOB1BQpd435wXCMlRAM0
-Secret = eowLrCMUY6zmzjdI4WN5oj-mNys0vmqE295EZghOcdujaWAX
+Key = PHU78bLPRFxYRzF2NaT73T8l
+Secret = gr764JVpcSCVM27sXv9XD7hmOoLg888feuUgp_fP0fAaK4EF
+;Key = ZlmRtOB1BQpd435wXCMlRAM0
+;Secret = eowLrCMUY6zmzjdI4WN5oj-mNys0vmqE295EZghOcdujaWAX
 
 [RestConfig]
 Scheme = https
@@ -16,7 +18,8 @@ Prefix = /api/v1
 Post = 
 
 [Subscribe] 
-Topic = connected, funding, instrument:XBTUSD, insurance, liquidation, orderBookL2:XBTUSD, orderBook10:XBTUSD, publicNotifications, quote, quoteBin1m, quoteBin5m, quoteBin1h, quoteBin1d, settlement, trade, tradeBin1m, tradeBin5m, tradeBin1h, tradeBin1d, execution, order, margin, position, transact, wallet
+;Topic = connected, funding, instrument:XBTUSD, insurance, liquidation, orderBookL2:XBTUSD, orderBook10:XBTUSD, publicNotifications, quote, quoteBin1m, quoteBin5m, quoteBin1h, quoteBin1d, settlement, trade, tradeBin1m, tradeBin5m, tradeBin1h, tradeBin1d, execution, order, margin, position, transact, wallet
+Topic = orderBook10:XBTUSD, execution, order, position
 
 [Trading]
 ;最小交易单元
@@ -30,4 +33,8 @@ Spread = 2
 PriceUint = 0.5
 ;交易档范围
 Range = 5
+;杠杆率
+Leverage = 10
+;查看频率
+Watch = 5
 

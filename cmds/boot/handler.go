@@ -164,6 +164,7 @@ type (
 
 func init() {
 	operate = make(chan Operate, 1)
+
 	go func() {
 		for {
 			op := <-operate
@@ -176,6 +177,10 @@ func init() {
 				if err := amendOrder(op.Params); err != nil {
 					log.Info(err)
 				}
+			case "cancel":
+				if err := cancelOrder(op.Params); err != nil {
+					log.Info(err)
+				}
 			default:
 				log.Info("not supported action")
 			}
@@ -184,6 +189,7 @@ func init() {
 }
 
 func dispatch(msg []byte) (err error) {
+
 	//log.Debug(string(msg))
 	message := string(msg)
 
@@ -214,31 +220,58 @@ func handlePing(msg string) (err error) {
 	log.Debug(msg)
 	// 移仓
 	for _, v := range order {
-		go func() {
-			action := "amend"
-			params := make(map[string]interface{})
-			pRange := Conf.Trading.Range
-			if pRange-1 < 0 {
-				pRange = 1
-			}
-			params["orderID"] = v.OrderID
-			if v.Side == "Sell" && v.Price > orderBook10[v.Symbol].Bids[pRange-1][0] {
-				params["price"] = orderBook10[v.Symbol].Bids[pRange-1][0]
-			}
 
-			if v.Side == "Buy" && v.Price < orderBook10[v.Symbol].Asks[pRange-1][0] {
-				params["price"] = orderBook10[v.Symbol].Asks[pRange-1][0]
-			}
+		if v.OrdStatus != "New" {
+			continue
+		}
+
+		if v.Side == "Buy" && v.Price >= orderBook10[v.Symbol].Bids[Conf.Trading.Range-1][0] {
+			continue
+		}
+
+		if v.Side == "Sell" && v.Price <= orderBook10[v.Symbol].Asks[Conf.Trading.Range-1][0] {
+			continue
+		}
+		go func(v Order) {
+			action := "cancel"
+			params := make(map[string]interface{})
+			params["orderID"] = v.OrderID
 			operate <- Operate{
 				action,
 				params,
 			}
-			log.Infof("%s order %s to be moved to %v, qty is %v", v.Side, params["orderID"], params["price"], v.OrderQty)
-		}()
+			log.Infof("%s order %s to be canceled, price is %v, qty is %v", v.Side, v.OrderID, v.Price, v.OrderQty)
+		}(v)
 	}
 
 	// 超出最大持仓量
 	for k, v := range position {
+
+		toBuy := true
+		toSell := true
+		for _, vv := range order {
+			if k != vv.Symbol {
+				continue
+			}
+			if vv.Side == "Buy" && vv.Price == orderBook10[vv.Symbol].Bids[0][0] && vv.OrdStatus == "New" {
+				log.Debug(vv)
+				toBuy = false
+				break
+			}
+		}
+
+		for _, vv := range order {
+			if k != vv.Symbol {
+				continue
+			}
+			if vv.Side == "Sell" && vv.Price == orderBook10[vv.Symbol].Asks[0][0] && vv.OrdStatus == "New" {
+				log.Debug(vv)
+				toSell = false
+				break
+			}
+		}
+
+		log.Infof("CurrentQty: %v", v.CurrentQty)
 		if math.Abs(v.CurrentQty) > Conf.Trading.MaxHoldQty {
 			go func() {
 				action := "create"
@@ -246,16 +279,18 @@ func handlePing(msg string) (err error) {
 				params["symbol"] = k
 				params["orderQty"] = Conf.Trading.UnitQty * 2
 				params["side"] = "Buy"
-				params["price"] = orderBook10[k].Asks[0][0]
+				params["price"] = orderBook10[k].Bids[0][0]
 				if v.CurrentQty > 0 {
 					params["side"] = "Sell"
-					params["price"] = orderBook10[k].Bids[0][0]
+					params["price"] = orderBook10[k].Asks[0][0]
 				}
-				operate <- Operate{
-					action,
-					params,
+				if (v.CurrentQty > 0 && toSell) || (v.CurrentQty < 0 && toBuy) {
+					operate <- Operate{
+						action,
+						params,
+					}
+					log.Infof("%s order to be created at %v, qty is %v", k, params["price"], params["orderQty"])
 				}
-				log.Infof("%s order %s to be moved to %v, qty is %v", k, params["orderID"], params["price"], params["orderQty"])
 			}()
 		}
 	}
@@ -268,24 +303,38 @@ func handlePing(msg string) (err error) {
 			if s != v.Symbol {
 				continue
 			}
-			if v.Side == "Buy" && v.Price == orderBook10[v.Symbol].Asks[0][0] {
+			if v.Side == "Buy" && v.Price == orderBook10[v.Symbol].Bids[0][0] && v.OrdStatus == "New" {
+				log.Debug(v)
 				toBuy = false
 				break
 			}
-			if v.Side == "Sell" && v.Price == orderBook10[v.Symbol].Bids[0][0] {
+		}
+
+		for _, v := range order {
+			if s != v.Symbol {
+				continue
+			}
+			if v.Side == "Sell" && v.Price == orderBook10[v.Symbol].Asks[0][0] && v.OrdStatus == "New" {
+				log.Debug(v)
 				toSell = false
 				break
 			}
 		}
 
-		go func() {
+		if math.Abs(position[s].CurrentQty) > Conf.Trading.MaxHoldQty {
+			log.Info("reach max hold Qty, stop create order")
+			break
+		}
+
+		log.Infof("toBuy: %v, toSell: %v", toBuy, toSell)
+		go func(toBuy, toSell bool) {
 			action := "create"
 			if toBuy {
 				params := make(map[string]interface{})
 				params["symbol"] = s
 				params["orderQty"] = Conf.Trading.UnitQty
 				params["side"] = "Buy"
-				params["price"] = orderBook10[s].Asks[0][0]
+				params["price"] = orderBook10[s].Bids[0][0]
 				operate <- Operate{
 					action,
 					params,
@@ -297,14 +346,14 @@ func handlePing(msg string) (err error) {
 				params2["symbol"] = s
 				params2["orderQty"] = Conf.Trading.UnitQty
 				params2["side"] = "Sell"
-				params2["price"] = orderBook10[s].Bids[0][0]
+				params2["price"] = orderBook10[s].Asks[0][0]
 				operate <- Operate{
 					action,
 					params2,
 				}
 				log.Infof("%s order to be create at %v, qty is %v", params2["side"], params2["price"], params2["orderQty"])
 			}
-		}()
+		}(toBuy, toSell)
 	}
 
 	return
@@ -322,6 +371,7 @@ func handleOrderBook10(msg []byte) (err error) {
 		for _, order := range obm.Data {
 			orderBook10[order.Symbol] = order
 			log.Info("---")
+			log.Infof("range: %v ~ %v", order.Asks[Conf.Trading.Range-1][0], order.Bids[Conf.Trading.Range-1][0])
 			log.Infof("Asks: %v\t%v\t%v\t%v\t%v", order.Asks[0], order.Asks[1], order.Asks[2], order.Asks[3], order.Asks[4])
 			log.Infof("Bids: %v\t%v\t%v\t%v\t%v", order.Bids[0], order.Bids[1], order.Bids[2], order.Bids[3], order.Bids[4])
 			log.Info("---")
@@ -359,11 +409,11 @@ func handleExecution(msg []byte) (err error) {
 				}
 				params["price"] = v.Price + spread*Conf.Trading.PriceUint
 
-				if params["side"] == "Buy" && params["price"].(float64) > orderBook10[v.Symbol].Asks[0][0] {
+				if params["side"] == "Buy" && params["price"].(float64) > orderBook10[v.Symbol].Bids[0][0] {
 					params["price"] = orderBook10[v.Symbol].Asks[0][0]
 				}
 
-				if params["side"] == "Sell" && params["price"].(float64) < orderBook10[v.Symbol].Bids[0][0] {
+				if params["side"] == "Sell" && params["price"].(float64) < orderBook10[v.Symbol].Asks[0][0] {
 					params["price"] = orderBook10[v.Symbol].Bids[0][0]
 				}
 
@@ -386,8 +436,8 @@ func handlePosition(msg []byte) (err error) {
 		return
 	}
 
+	position = make(map[string]Position)
 	if pm.Action == "partial" {
-		position = make(map[string]Position)
 		for _, p := range pm.Data {
 			position[p.Symbol] = p
 		}
@@ -506,6 +556,34 @@ func amendOrder(params map[string]interface{}) error {
 		Conf.AuthConfig,
 		params,
 		&or,
+		nil,
+	}
+	return ep.Do()
+}
+
+// 取消订单
+func cancelOrder(params map[string]interface{}) error {
+	ep := Endpoint{
+		"DELETE",
+		"/order",
+		Conf.RestConfig,
+		Conf.AuthConfig,
+		params,
+		nil,
+		nil,
+	}
+	return ep.Do()
+}
+
+// 设置杠杆率
+func setLeverage(params map[string]interface{}) error {
+	ep := Endpoint{
+		"POST",
+		"/position/leverage",
+		Conf.RestConfig,
+		Conf.AuthConfig,
+		params,
+		nil,
 		nil,
 	}
 	return ep.Do()

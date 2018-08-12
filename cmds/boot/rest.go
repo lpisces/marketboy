@@ -2,8 +2,10 @@ package boot
 
 import (
 	"fmt"
+	log "github.com/sirupsen/logrus"
 	"gopkg.in/resty.v1"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -80,12 +82,15 @@ func (ep *Endpoint) Do() (err error) {
 
 	// header
 	request.SetHeader("Accept", "application/json")
+	request.SetHeader("Content-Type", "application/json")
 	for k, v := range header {
 		request.SetHeader(k, fmt.Sprintf("%v", v))
 	}
 
 	// response
-	request.SetResult(ep.Result)
+	if ep.Result != nil {
+		request.SetResult(ep.Result)
+	}
 
 	// do request
 	switch ep.Verb {
@@ -103,6 +108,15 @@ func (ep *Endpoint) Do() (err error) {
 	}
 	if err != nil {
 		return
+	}
+
+	respHeader := ep.Response.Header()
+	log.Info(ep.Params)
+	log.Infof("x-ratelimit-remaining: %v", respHeader["X-Ratelimit-Remaining"])
+
+	limit, _ := strconv.ParseInt(respHeader["X-Ratelimit-Remaining"][0], 10, 64)
+	if limit < 30 {
+		return fmt.Errorf("op limit")
 	}
 
 	// check status code

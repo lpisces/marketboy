@@ -14,7 +14,6 @@ import (
 
 const (
 	AuthExpire = 7 * 24 * 60 * 60
-	Ping       = 3
 )
 
 type CMD struct {
@@ -26,6 +25,17 @@ func Run(c *cli.Context) (err error) {
 	if err := Conf.Load(c); err != nil {
 		return err
 	}
+
+	for _, v := range Conf.Trading.Symbol {
+		params := make(map[string]interface{})
+		params["symbol"] = v
+		params["leverage"] = Conf.Trading.Leverage
+		if err := setLeverage(params); err != nil {
+			log.Info(err)
+		}
+	}
+
+	Ping := time.Duration(Conf.Trading.Watch)
 
 	log.SetLevel(log.InfoLevel)
 	if Conf.Debug {
@@ -39,7 +49,8 @@ func Run(c *cli.Context) (err error) {
 	log.Infof("connecting to %s", u.String())
 
 	// connection
-	conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	conn, resp, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	log.Info(resp.Header)
 	if err != nil {
 		return err
 	}

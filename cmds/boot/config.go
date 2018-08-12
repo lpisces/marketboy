@@ -49,6 +49,8 @@ type (
 		Spread     float64
 		PriceUint  float64
 		Range      int64
+		Leverage   float64
+		Watch      int64
 	}
 )
 
@@ -87,6 +89,8 @@ func Default() *Config {
 			1,
 			0.5,
 			5,
+			10,
+			30,
 		},
 	}
 
